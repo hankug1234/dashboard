@@ -1,20 +1,18 @@
 import json
 import re
-from flask import Flask
-from flask_restful import Resource,Api,reqparse
-
+from flask import Flask,request
+from flask_restful import Resource,Api
+from collections import deque
+from waitress import serve
 app = Flask(__name__)
 api = Api(app)
-queue = list()
-parser = reqparse.RequestParser(); parser.add_argument('rate',type=str);
+queue = deque(maxlen=5)
+
 
 def validation(str):
-    exp = re.compile('{ *(\'cpu\'|\'gpu\') *: *(\d+.?\d+) *, *(\'cpu\'|\'gpu\') *: *(\d+.?\d+) *}')
+    exp = re.compile('{ *(\'image\'|\"image\") *: *(.+) *, *(\'rate\'|\"rate\") *: *{ *(\'cpu\'|\"cpu\") *: *(\d+.?\d+) *, *(\'gpu\'|\"gpu\") *: *(\d+.?\d+) *} *}')
     result = exp.match(str)
     if(result):
-        if(result.group(1)==result.group(3)):
-         return False
-        else:
          return True
     else:
         return False
@@ -22,21 +20,21 @@ def validation(str):
 class Data(Resource):
     def get(self):
         if (len(queue) != 0):
-            ra = queue.pop(0)
+            ra = queue.popleft()
         else:
             ra = '404'
         return {'data': ra}
     def post(self):
-        arg = parser.parse_args()
-        ra = arg['rate']
+        ra = request.form['data']
         if(validation(ra)):
          ra = ra.replace("'","\"")
          ra = json.loads(ra)
          queue.append(ra)
+         state = 'ok'
         else:
-         ra = 'post form error'
-        return {'new_data':ra}
+         state = 'post form error'
+        return {'state':state}
 
 api.add_resource(Data,'/data')
 if __name__ == '__main__':
-    app.run(debug=False,port=5002)
+    app.run(debug=False, port=5002)

@@ -10,6 +10,9 @@ import plotly.graph_objects as go
 from collections import deque
 from flask_restful import Resource,Api,reqparse
 from dash.exceptions import PreventUpdate
+import base64
+import cv2
+from waitress import serve
 
 cpuX = deque(maxlen=20); cpuY= deque(maxlen=20); gpuX= deque(maxlen=20); gpuY= deque(maxlen=20)
 
@@ -27,6 +30,10 @@ es = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 '''graph css 설정'''
 colors = {'background': '#111111','text': '#7FDBFF'}
 
+'''초기 사진설정'''
+image = cv2.imread("assets/image1.jpg")
+img = cv2.imencode('.jpg',image)[1].tobytes()
+encoded_image = base64.b64encode(img)
 
 '''cpu gpu에 대한 deque의 size를 초기화 하는 함수'''
 def initialDequeSize(maxlen):
@@ -91,29 +98,31 @@ gpuGraphConfig = go.Figure(
 app.layout = html.Div(
     [html.Div([generate_table(cdata,rdata)],className='bar-style',id='table'),
      html.Div([ dcc.Graph( id = 'graph3',animate=True, figure = avgGraphConfig)], className='avg-style'),
-     html.Div([ dcc.Graph(id='graph', animate=True, figure= cpuGraphConfig)],className='cpu-style'),
-     html.Div([ dcc.Graph(id='graph2', animate=True,figure= gpuGraphConfig)],className='gpu-style'),
+     html.Div([
+               html.Div([ dcc.Graph(id='graph', animate=True, figure= cpuGraphConfig)],className='cpu-style'),
+               html.Div([ dcc.Graph(id='graph2', animate=True,figure= gpuGraphConfig)],className='gpu-style')],className='bottomlayout'),
+     html.Div([html.Img(src='data:image/jpg;base64,{}'.format(encoded_image.decode()),id='img',width='600px',height='600px')],className='bottomlayout2'),
      dcc.Interval(id='interval',interval=1000,n_intervals=0),
     ], className='base-style'
    )
 
 
-
-@app.callback([Output('graph','figure'),Output('table','children'),Output('graph2','figure')],[Input('interval','n_intervals')])
+@app.callback([Output('graph','figure'),Output('table','children'),Output('graph2','figure'),Output('img','src')],[Input('interval','n_intervals')])
 def update_graph(n):
     global cpuX, cpuY, gpuX, gpuY, cdata,rdata
-
+    if (n == 0):
+        raise PreventUpdate
     data = get('http://127.0.0.1:5002/data').json()
     if(data['data']=='404'):
         raise PreventUpdate
     else:
      cpuX.append(cpuX[-1] + 1)
      gpuX.append(gpuX[-1] + 1)
-     cpuY.append(data['data']['cpu'])
-     gpuY.append(data['data']['gpu'])
-     rdata[3] = data['data']['cpu']
-     rdata[4] = data['data']['gpu']
-
+     cpuY.append(data['data']['rate']['cpu'])
+     gpuY.append(data['data']['rate']['gpu'])
+     rdata[3] = data['data']['rate']['cpu']
+     rdata[4] = data['data']['rate']['gpu']
+     encoded_image = bytes(data['data']['image'])
 
     figure = go.Figure(
         data=[go.Scatter(y=list(cpuY), x=list(cpuX),)],
@@ -124,7 +133,7 @@ def update_graph(n):
         layout=go.Layout(xaxis=dict(range=[min(gpuX), max(gpuX)]), yaxis=dict(range=[min(gpuY), max(gpuY)])))
 
 
-    return figure, generate_table(cdata,rdata),figure2
+    return figure, generate_table(cdata,rdata),figure2,'data:image/jpg;base64,{}'.format(encoded_image.decode())
 
 
 @app.callback(Output('graph3','figure'),[Input('interval','n_intervals')])
@@ -152,4 +161,5 @@ def update_graph3(n):
         raise PreventUpdate
 
 if __name__ == '__main__':
-    app.run_server(debug=False,port=5001)
+    app.run_server(debug=False, port=5001)
+
